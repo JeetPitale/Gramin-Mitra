@@ -5,7 +5,7 @@ import {
     FaPlayCircle, FaThermometerHalf, FaCloudSun, FaArrowRight
 } from 'react-icons/fa';
 import Navbar from '../components/Navbar';
-import Footer from '../components/footer';
+import Footer from '../components/Footer';
 
 const FarmingGuide = () => {
     // SAFGUARD: If context fails or is loading, default to 'en'
