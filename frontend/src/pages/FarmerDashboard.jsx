@@ -22,7 +22,10 @@ const FarmerDashboard = () => {
         location: 'Fetching location...',
         icon: '01d'
     });
+    const [editingProduct, setEditingProduct] = useState(null);
     const [isAddModalOpen, setAddModalOpen] = useState(false);
+    const [imageFile, setImageFile] = useState(null);
+    const [imageUploadMode, setImageUploadMode] = useState('url'); // 'url' or 'file'
     const [newProduct, setNewProduct] = useState({
         name: '',
         type: 'Vegetable',
@@ -108,7 +111,7 @@ const FarmerDashboard = () => {
     // --- API Calls ---
     const fetchProducts = async () => {
         try {
-            const response = await fetch(`http://localhost:5000/products/farmer/${user.id}`);
+            const response = await fetch(`http://localhost:5001/products/farmer/${user.id}`);
             const data = await response.json();
             if (response.ok) {
                 setProducts(data.products || []);
@@ -122,7 +125,7 @@ const FarmerDashboard = () => {
 
     const fetchOrders = async () => {
         try {
-            const response = await fetch(`http://localhost:5000/orders/farmer/${user.id}`);
+            const response = await fetch(`http://localhost:5001/orders/farmer/${user.id}`);
             const data = await response.json();
             if (response.ok) {
                 setOrders(data.orders || []);
@@ -133,42 +136,108 @@ const FarmerDashboard = () => {
     };
 
     // --- Handlers ---
+    const handleEditClick = (product) => {
+        setEditingProduct(product);
+        setNewProduct({
+            name: product.name,
+            type: product.type,
+            quantity: product.quantity,
+            price: product.price,
+            image: product.image || ''
+        });
+        setImageUploadMode('url'); // Default to URL when editing, can switch to file
+        setAddModalOpen(true);
+    };
+
     const handleAddProduct = async (e) => {
         e.preventDefault();
         try {
-            const response = await fetch('http://localhost:5000/products', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    farmerId: user.id,
-                    farmerName: user.name,
-                    ...newProduct
-                })
-            });
+            let imageUrl = newProduct.image;
 
-            const data = await response.json();
-            if (response.ok) {
-                setProducts([data.product, ...products]);
-                setNewProduct({ name: '', type: 'Vegetable', quantity: '', price: '', image: '' });
-                setAddModalOpen(false);
+            // If uploading a file, send it first
+            if (imageUploadMode === 'file' && imageFile) {
+                const formData = new FormData();
+                formData.append('image', imageFile);
+
+                const uploadResponse = await fetch('http://localhost:5001/upload-product-image', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const uploadData = await uploadResponse.json();
+                if (uploadResponse.ok) {
+                    imageUrl = uploadData.imageUrl;
+                } else {
+                    alert('Failed to upload image');
+                    return;
+                }
+            }
+
+            if (editingProduct) {
+                // UPDATE Existing Product
+                const response = await fetch(`http://localhost:5001/products/${editingProduct._id}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        farmerId: user.id,
+                        farmerName: user.name,
+                        ...newProduct,
+                        image: imageUrl
+                    })
+                });
+
+                const data = await response.json();
+                if (response.ok) {
+                    setProducts(products.map(p => p._id === editingProduct._id ? data.product : p));
+                    setAddModalOpen(false);
+                    setEditingProduct(null);
+                    setNewProduct({ name: '', type: 'Vegetable', quantity: '', price: '', image: '' });
+                    setImageFile(null);
+                    alert('Product updated successfully!');
+                } else {
+                    alert(data.message || 'Failed to update product');
+                }
             } else {
-                alert(data.message || 'Failed to add product');
+                // CREATE New Product
+                const response = await fetch('http://localhost:5001/products', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        farmerId: user.id,
+                        farmerName: user.name,
+                        ...newProduct,
+                        image: imageUrl
+                    })
+                });
+
+                const data = await response.json();
+                if (response.ok) {
+                    setProducts([data.product, ...products]);
+                    setNewProduct({ name: '', type: 'Vegetable', quantity: '', price: '', image: '' });
+                    setImageFile(null);
+                    setImageUploadMode('url');
+                    setAddModalOpen(false);
+                    alert('Product listed successfully!');
+                } else {
+                    alert(data.message || 'Failed to add product');
+                }
             }
         } catch (error) {
-            console.error('Error adding product:', error);
-            alert('Failed to add product');
+            console.error('Error saving product:', error);
+            alert('Failed to save product');
         }
     };
 
     const handleDeleteProduct = async (id) => {
         if (window.confirm("Are you sure you want to delete this crop?")) {
             try {
-                const response = await fetch(`http://localhost:5000/products/${id}?farmerId=${user.id}`, {
+                const response = await fetch(`http://localhost:5001/products/${id}?farmerId=${user.id}`, {
                     method: 'DELETE'
                 });
 
                 if (response.ok) {
                     setProducts(products.filter(p => p._id !== id));
+                    alert('Product deleted successfully');
                 } else {
                     const data = await response.json();
                     alert(data.message || 'Failed to delete product');
@@ -245,11 +314,10 @@ const FarmerDashboard = () => {
 
             <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
 
-                {/* --- 1. Quick Stats Widgets --- */}
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-10">
 
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-10">
                     {/* Weather Widget */}
-                    <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-2xl p-6 text-white shadow-lg shadow-blue-200 transform transition hover:-translate-y-1">
+                    <div className="bg-linear-to-br from-blue-500 to-blue-600 rounded-2xl p-6 text-white shadow-lg shadow-blue-200 transform transition hover:-translate-y-1">
                         <div className="flex justify-between items-start">
                             <div>
                                 <p className="text-blue-100 text-sm font-medium mb-1">{weather.location}</p>
@@ -260,53 +328,66 @@ const FarmerDashboard = () => {
                         </div>
                     </div>
 
-                    {/* Field Health */}
+                    {/* Total Sales Widget */}
                     <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 flex flex-col justify-between hover:shadow-md transition-shadow">
                         <div className="flex justify-between items-start mb-4">
                             <div>
-                                <p className="text-gray-500 text-sm font-medium">Field Health</p>
-                                <h3 className="text-2xl font-bold text-green-600 mt-1">Excellent</h3>
+                                <p className="text-gray-500 text-sm font-medium">Total Sales</p>
+                                <h3 className="text-2xl font-bold text-green-600 mt-1">
+                                    ₹{orders
+                                        .filter(o => o.status === 'Confirmed' || o.status === 'Delivered')
+                                        .reduce((acc, curr) => acc + curr.totalPrice, 0)
+                                        .toLocaleString()}
+                                </h3>
                             </div>
                             <div className="bg-green-100 p-3 rounded-xl">
-                                <FaSeedling className="text-green-600 text-xl" />
+                                <FaRupeeSign className="text-green-600 text-xl" />
                             </div>
                         </div>
                         <div className="w-full bg-gray-100 rounded-full h-2.5 overflow-hidden">
-                            <div className="bg-green-500 h-2.5 rounded-full" style={{ width: '92%' }}></div>
+                            <div className="bg-green-500 h-2.5 rounded-full" style={{ width: '100%' }}></div>
                         </div>
-                        <p className="text-xs text-gray-400 mt-2 text-right">Updated 2h ago</p>
+                        <p className="text-xs text-gray-400 mt-2 text-right">Lifetime Revenue</p>
                     </div>
 
-                    {/* Soil Moisture */}
+                    {/* Total Inventory Value Widget */}
                     <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 flex flex-col justify-between hover:shadow-md transition-shadow">
                         <div className="flex justify-between items-start mb-4">
                             <div>
-                                <p className="text-gray-500 text-sm font-medium">Soil Moisture</p>
-                                <h3 className="text-2xl font-bold text-blue-600 mt-1">65%</h3>
+                                <p className="text-gray-500 text-sm font-medium">Inventory Value</p>
+                                <h3 className="text-2xl font-bold text-blue-600 mt-1">
+                                    ₹{products
+                                        .reduce((acc, curr) => acc + (curr.price * curr.quantity), 0)
+                                        .toLocaleString()}
+                                </h3>
                             </div>
                             <div className="bg-blue-100 p-3 rounded-xl">
-                                <FaTint className="text-blue-600 text-xl" />
+                                <FaBoxOpen className="text-blue-600 text-xl" />
                             </div>
                         </div>
                         <div className="w-full bg-gray-100 rounded-full h-2.5 overflow-hidden">
-                            <div className="bg-blue-500 h-2.5 rounded-full" style={{ width: '65%' }}></div>
+                            <div className="bg-blue-500 h-2.5 rounded-full" style={{ width: '100%' }}></div>
                         </div>
-                        <p className="text-xs text-gray-400 mt-2 text-right">Optimal Level</p>
+                        <p className="text-xs text-gray-400 mt-2 text-right">Potential Earnings</p>
                     </div>
 
-                    {/* Alerts */}
-                    <div className="bg-white rounded-2xl p-6 shadow-sm border-l-4 border-red-400 flex flex-col justify-between relative overflow-hidden hover:shadow-md transition-shadow">
+                    {/* Active Orders Widget */}
+                    <div className="bg-white rounded-2xl p-6 shadow-sm border-l-4 border-yellow-400 flex flex-col justify-between relative overflow-hidden hover:shadow-md transition-shadow">
                         <div className="flex justify-between items-start">
                             <div className="z-10">
-                                <p className="text-gray-500 text-sm font-medium">Alerts</p>
-                                <h3 className="text-xl font-bold text-gray-800 mt-1">Heavy Rain</h3>
-                                <span className="inline-block bg-red-100 text-red-600 text-xs px-2 py-1 rounded mt-2 font-semibold">Tomorrow</span>
+                                <p className="text-gray-500 text-sm font-medium">Active Orders</p>
+                                <h3 className="text-xl font-bold text-gray-800 mt-1">
+                                    {orders.filter(o => o.status === 'Pending').length} Pending
+                                </h3>
+                                <span className="inline-block bg-yellow-100 text-yellow-700 text-xs px-2 py-1 rounded mt-2 font-semibold">
+                                    Action Required
+                                </span>
                             </div>
-                            <div className="bg-red-50 p-3 rounded-xl z-10">
-                                <FaBell className="text-red-500 text-xl animate-pulse" />
+                            <div className="bg-yellow-50 p-3 rounded-xl z-10">
+                                <FaBell className="text-yellow-500 text-xl animate-pulse" />
                             </div>
                         </div>
-                        <div className="absolute -right-6 -bottom-6 w-24 h-24 bg-red-50 rounded-full opacity-50"></div>
+                        <div className="absolute -right-6 -bottom-6 w-24 h-24 bg-yellow-50 rounded-full opacity-50"></div>
                     </div>
                 </div>
 
@@ -317,7 +398,11 @@ const FarmerDashboard = () => {
                         <p className="text-gray-500 mt-1">Manage crops currently listed for wholesalers.</p>
                     </div>
                     <button
-                        onClick={() => setAddModalOpen(true)}
+                        onClick={() => {
+                            setEditingProduct(null);
+                            setNewProduct({ name: '', type: 'Vegetable', quantity: '', price: '', image: '' });
+                            setAddModalOpen(true);
+                        }}
                         className="bg-green-600 hover:bg-green-700 text-white px-5 py-3 rounded-xl font-bold shadow-lg shadow-green-100 flex items-center justify-center gap-2 transition-all transform active:scale-95"
                     >
                         <FaPlus /> Add New Crop
@@ -332,7 +417,10 @@ const FarmerDashboard = () => {
                         <h3 className="text-xl font-bold text-gray-800 mb-2">Your Inventory is Empty</h3>
                         <p className="text-gray-500 mb-8 max-w-md mx-auto">Start listing your harvest to reach thousands of buyers and wholesalers directly.</p>
                         <button
-                            onClick={() => setAddModalOpen(true)}
+                            onClick={() => {
+                                setEditingProduct(null);
+                                setAddModalOpen(true);
+                            }}
                             className="text-green-600 font-bold hover:text-green-700 underline underline-offset-4"
                         >
                             + Add your first crop now
@@ -351,7 +439,7 @@ const FarmerDashboard = () => {
                                     <div className="absolute top-4 right-4 bg-white/95 backdrop-blur-md px-3 py-1.5 rounded-full text-xs font-bold text-gray-700 shadow-sm border border-gray-200">
                                         {product.type}
                                     </div>
-                                    <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent p-4">
+                                    <div className="absolute bottom-0 left-0 right-0 bg-linear-to-t from-black/60 to-transparent p-4">
                                         <h3 className="text-xl font-bold text-white drop-shadow-md">{product.name}</h3>
                                     </div>
                                 </div>
@@ -371,7 +459,10 @@ const FarmerDashboard = () => {
                                     </div>
 
                                     <div className="flex gap-3">
-                                        <button className="flex-1 text-blue-700 bg-blue-50 hover:bg-blue-100 py-2.5 rounded-lg font-semibold text-sm transition-colors flex items-center justify-center gap-2">
+                                        <button
+                                            onClick={() => handleEditClick(product)}
+                                            className="flex-1 text-blue-700 bg-blue-50 hover:bg-blue-100 py-2.5 rounded-lg font-semibold text-sm transition-colors flex items-center justify-center gap-2"
+                                        >
                                             <FaEdit /> Edit
                                         </button>
                                         <button
@@ -450,13 +541,17 @@ const FarmerDashboard = () => {
             {isAddModalOpen && (
                 <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-fade-in">
                     <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden animate-scale-in">
-                        <div className="bg-gradient-to-r from-green-600 to-green-700 p-6 text-white flex justify-between items-center">
+                        <div className="bg-linear-to-r from-green-600 to-green-700 p-6 text-white flex justify-between items-center">
                             <div>
-                                <h3 className="text-xl font-bold">Add New Crop</h3>
-                                <p className="text-green-100 text-sm mt-1">Fill in the details to list your produce.</p>
+                                <h3 className="text-xl font-bold">{editingProduct ? 'Edit Crop' : 'Add New Crop'}</h3>
+                                <p className="text-green-100 text-sm mt-1">{editingProduct ? 'Update the details of your produce.' : 'Fill in the details to list your produce.'}</p>
                             </div>
                             <button
-                                onClick={() => setAddModalOpen(false)}
+                                onClick={() => {
+                                    setAddModalOpen(false);
+                                    setEditingProduct(null);
+                                    setNewProduct({ name: '', type: 'Vegetable', quantity: '', price: '', image: '' });
+                                }}
                                 className="bg-white/20 hover:bg-white/30 rounded-full p-2 transition-colors"
                             >
                                 ✕
@@ -526,21 +621,64 @@ const FarmerDashboard = () => {
                             </div>
 
                             <div>
-                                <label className="block text-sm font-bold text-gray-700 mb-2">Image URL (Optional)</label>
-                                <input
-                                    type="url"
-                                    className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-green-500 outline-none bg-gray-50 focus:bg-white"
-                                    placeholder="https://example.com/image.jpg"
-                                    value={newProduct.image}
-                                    onChange={(e) => setNewProduct({ ...newProduct, image: e.target.value })}
-                                />
+                                <label className="block text-sm font-bold text-gray-700 mb-2">Product Image (Optional)</label>
+
+                                {/* Toggle between URL and File Upload */}
+                                <div className="flex gap-2 mb-3">
+                                    <button
+                                        type="button"
+                                        onClick={() => setImageUploadMode('url')}
+                                        className={`flex-1 px-4 py-2 rounded-lg font-semibold text-sm transition-all ${imageUploadMode === 'url'
+                                            ? 'bg-green-600 text-white shadow-md'
+                                            : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                                            }`}
+                                    >
+                                        URL
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setImageUploadMode('file')}
+                                        className={`flex-1 px-4 py-2 rounded-lg font-semibold text-sm transition-all ${imageUploadMode === 'file'
+                                            ? 'bg-green-600 text-white shadow-md'
+                                            : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                                            }`}
+                                    >
+                                        Upload File
+                                    </button>
+                                </div>
+
+                                {/* URL Input */}
+                                {imageUploadMode === 'url' && (
+                                    <input
+                                        type="url"
+                                        className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-green-500 outline-none bg-gray-50 focus:bg-white"
+                                        placeholder="https://example.com/image.jpg"
+                                        value={newProduct.image}
+                                        onChange={(e) => setNewProduct({ ...newProduct, image: e.target.value })}
+                                    />
+                                )}
+
+                                {/* File Upload Input */}
+                                {imageUploadMode === 'file' && (
+                                    <div>
+                                        <input
+                                            type="file"
+                                            accept="image/*"
+                                            onChange={(e) => setImageFile(e.target.files[0])}
+                                            className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-green-500 outline-none bg-gray-50 focus:bg-white file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-green-50 file:text-green-700 hover:file:bg-green-100"
+                                        />
+                                        {imageFile && (
+                                            <p className="text-sm text-green-600 mt-2">✓ {imageFile.name}</p>
+                                        )}
+                                    </div>
+                                )}
                             </div>
 
                             <button
                                 type="submit"
                                 className="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-4 rounded-xl shadow-lg shadow-green-200 transition-transform transform active:scale-95 text-lg mt-4"
                             >
-                                List Crop for Sale
+                                {editingProduct ? 'Update Crop Details' : 'List Crop for Sale'}
                             </button>
                         </form>
                     </div>

@@ -21,52 +21,71 @@ const WholesaleDashboard = () => {
     const [buyQuantity, setBuyQuantity] = useState('');
     const [deliveryType, setDeliveryType] = useState('Delivery');
     const [allProducts, setAllProducts] = useState([]);
+    const [orders, setOrders] = useState([]);
     const [loading, setLoading] = useState(true);
 
-    // --- Fetch Products from API ---
+    // --- Fetch Data from API ---
     useEffect(() => {
-        fetchAllProducts();
-    }, []);
+        if (user?.id) {
+            fetchAllProducts();
+            fetchOrders();
+        }
+    }, [user]);
 
     const fetchAllProducts = async () => {
         try {
-            const response = await fetch('http://localhost:5000/products');
+            const response = await fetch('http://localhost:5001/products');
             const data = await response.json();
             if (response.ok) {
                 setAllProducts(data.products || []);
             }
         } catch (error) {
             console.error('Error fetching products:', error);
+        }
+    };
+
+    const fetchOrders = async () => {
+        try {
+            const response = await fetch(`http://localhost:5001/orders/wholesaler/${user.id}`);
+            const data = await response.json();
+            if (response.ok) {
+                setOrders(data.orders || []);
+            }
+        } catch (error) {
+            console.error('Error fetching orders:', error);
         } finally {
             setLoading(false);
         }
     };
 
-    // --- Mock Data (will be replaced with filtered real data) ---
-    // 1. Available Crops in Market (Grouped)
-    const cropCategories = [
-        { id: 'veg', name: 'Vegetable', image: 'https://images.unsplash.com/photo-1597362925123-77861d3fbac7?w=600&q=80', count: 12 },
-        { id: 'fruit', name: 'Fruit', image: 'https://images.unsplash.com/photo-1610832958506-aa56368176cf?w=600&q=80', count: 8 },
-        { id: 'grain', name: 'Grain', image: 'https://images.unsplash.com/photo-1574323347407-f5e1ad6d020b?w=600&q=80', count: 5 },
-        { id: 'pulse', name: 'Pulse', image: 'https://images.unsplash.com/photo-1515543904379-3d757afe72e3?w=600&q=80', count: 4 },
-    ];
+    // --- Derived Metrics ---
+    const totalStock = orders
+        .filter(o => o.status === 'Delivered')
+        .reduce((sum, o) => sum + o.quantity, 0);
 
-    // 4. Inventory Data (With Batch & Expiry)
-    const inventoryData = [
-        { id: 'inv1', name: 'Tomato', batchId: 'BATCH-2024-001', stock: 1200, unit: 'kg', expiry: '2024-02-28', status: 'In Stock' },
-        { id: 'inv2', name: 'Wheat', batchId: 'BATCH-2024-045', stock: 80, unit: 'kg', expiry: '2024-08-20', status: 'Low Stock' },
-        { id: 'inv3', name: 'Apple', batchId: 'BATCH-2024-089', stock: 450, unit: 'kg', expiry: '2024-03-05', status: 'Medium' },
+    const todayOrders = orders.filter(o => {
+        const orderDate = new Date(o.createdAt).toDateString();
+        const today = new Date().toDateString();
+        return orderDate === today;
+    });
+
+    const todaySpend = todayOrders.reduce((sum, o) => sum + o.totalPrice, 0);
+
+    const activeOrders = orders.filter(o => o.status === 'Pending' || o.status === 'Confirmed');
+    const pendingDeliveries = activeOrders.slice(0, 3);
+
+    // --- Mock Data (Categories) for Marketplace Navigation ---
+    const cropCategories = [
+        { id: 'veg', name: 'Vegetable', image: 'https://images.unsplash.com/photo-1597362925123-77861d3fbac7?w=600&q=80', count: allProducts.filter(p => p.type === 'Vegetable').length },
+        { id: 'fruit', name: 'Fruit', image: 'https://images.unsplash.com/photo-1610832958506-aa56368176cf?w=600&q=80', count: allProducts.filter(p => p.type === 'Fruit').length },
+        { id: 'grain', name: 'Grain', image: 'https://images.unsplash.com/photo-1574323347407-f5e1ad6d020b?w=600&q=80', count: allProducts.filter(p => p.type === 'Grain').length },
+        { id: 'pulse', name: 'Pulse', image: 'https://www.world-grain.com/ext/resources/2024/08/30/pulses-variety_NEW-AFRICA---STOCK.ADOBE.COM_e.webp?height=667&t=1725273002&width=1080', count: allProducts.filter(p => p.type === 'Pulse').length },
     ];
 
     // --- Navigation Handlers ---
     const handleCategorySelect = async (categoryName) => {
         setSelectedCategory(categoryName);
         setMarketView('farmer_list'); // Show filtered products
-    };
-
-    const handleCropSelect = (crop) => {
-        setSelectedCrop(crop);
-        setMarketView('farmer_list');
     };
 
     const handleBack = () => {
@@ -82,7 +101,7 @@ const WholesaleDashboard = () => {
     const confirmPurchase = async (e) => {
         e.preventDefault();
         try {
-            const response = await fetch('http://localhost:5000/orders', {
+            const response = await fetch('http://localhost:5001/orders', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -96,15 +115,17 @@ const WholesaleDashboard = () => {
                     unit: 'kg',
                     pricePerUnit: showBuyModal.price,
                     deliveryType,
-                    location: ''
+                    location: '',
+                    totalPrice: Number(buyQuantity) * showBuyModal.price
                 })
             });
 
             const data = await response.json();
             if (response.ok) {
-                alert(`Order Placed Successfully!\n\nCrop: ${showBuyModal.name}\nFarmer: ${showBuyModal.farmerName}\nQty: ${buyQuantity} kg\nTotal: ₹${buyQuantity * showBuyModal.price}\nMode: ${deliveryType}`);
+                alert(`Order Placed Successfully!`);
                 setShowBuyModal(null);
                 setBuyQuantity('');
+                fetchOrders(); // Refresh orders
             } else {
                 alert(data.message || 'Failed to place order');
             }
@@ -132,7 +153,7 @@ const WholesaleDashboard = () => {
 
                         {/* Desktop Tabs */}
                         <div className="hidden md:flex space-x-8">
-                            {['overview', 'marketplace', 'inventory', 'contracts'].map((tab) => (
+                            {['overview', 'marketplace', 'inventory'].map((tab) => (
                                 <button
                                     key={tab}
                                     onClick={() => setActiveTab(tab)}
@@ -172,8 +193,8 @@ const WholesaleDashboard = () => {
                             {/* Widget 1: Total Stock */}
                             <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex justify-between items-center">
                                 <div>
-                                    <p className="text-sm font-medium text-gray-500">Total Stock Available</p>
-                                    <h3 className="text-2xl font-bold text-gray-900 mt-1">14,250 kg</h3>
+                                    <p className="text-sm font-medium text-gray-500">My Stock</p>
+                                    <h3 className="text-2xl font-bold text-gray-900 mt-1">{totalStock.toLocaleString()} kg</h3>
                                 </div>
                                 <div className="bg-blue-50 p-3 rounded-xl"><FaBoxOpen className="text-blue-600 text-xl" /></div>
                             </div>
@@ -181,27 +202,27 @@ const WholesaleDashboard = () => {
                             <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex justify-between items-center">
                                 <div>
                                     <p className="text-sm font-medium text-gray-500">Today's Orders</p>
-                                    <h3 className="text-2xl font-bold text-gray-900 mt-1">24</h3>
-                                    <span className="text-xs text-green-600">8 Incoming / 16 Outgoing</span>
+                                    <h3 className="text-2xl font-bold text-gray-900 mt-1">{todayOrders.length}</h3>
+                                    <span className="text-xs text-green-600">New Purchases</span>
                                 </div>
                                 <div className="bg-green-50 p-3 rounded-xl"><FaClipboardList className="text-green-600 text-xl" /></div>
                             </div>
                             {/* Widget 3: Revenue */}
                             <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex justify-between items-center">
                                 <div>
-                                    <p className="text-sm font-medium text-gray-500">Revenue (Today)</p>
-                                    <h3 className="text-2xl font-bold text-gray-900 mt-1">₹ 4.5 L</h3>
+                                    <p className="text-sm font-medium text-gray-500">Spent (Today)</p>
+                                    <h3 className="text-2xl font-bold text-gray-900 mt-1">₹ {todaySpend.toLocaleString()}</h3>
                                 </div>
                                 <div className="bg-purple-50 p-3 rounded-xl"><FaMoneyBillWave className="text-purple-600 text-xl" /></div>
                             </div>
-                            {/* Widget 4: Low Stock Alert */}
-                            <div className="bg-white p-6 rounded-2xl shadow-sm border border-red-100 flex justify-between items-center relative overflow-hidden">
-                                <div className="absolute right-0 top-0 w-16 h-16 bg-red-500 opacity-5 rounded-bl-full"></div>
+                            {/* Widget 4: Active Orders */}
+                            <div className="bg-white p-6 rounded-2xl shadow-sm border border-blue-100 flex justify-between items-center relative overflow-hidden">
+                                <div className="absolute right-0 top-0 w-16 h-16 bg-blue-500 opacity-5 rounded-bl-full"></div>
                                 <div>
-                                    <p className="text-sm font-medium text-gray-500">Low Stock Alerts</p>
-                                    <h3 className="text-2xl font-bold text-red-600 mt-1">3 Items</h3>
+                                    <p className="text-sm font-medium text-gray-500">Active Orders</p>
+                                    <h3 className="text-2xl font-bold text-blue-600 mt-1">{activeOrders.length} Pending</h3>
                                 </div>
-                                <div className="bg-red-50 p-3 rounded-xl"><FaExclamationTriangle className="text-red-500 text-xl animate-pulse" /></div>
+                                <div className="bg-blue-50 p-3 rounded-xl"><FaTruck className="text-blue-500 text-xl" /></div>
                             </div>
                         </div>
 
@@ -210,25 +231,29 @@ const WholesaleDashboard = () => {
                             <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
                                 <h3 className="font-bold text-gray-800 mb-4">Pending Deliveries</h3>
                                 <div className="space-y-4">
-                                    {[1, 2, 3].map((i) => (
-                                        <div key={i} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                                    {pendingDeliveries.length > 0 ? pendingDeliveries.map((order) => (
+                                        <div key={order._id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                                             <div className="flex items-center gap-3">
                                                 <div className="bg-yellow-100 p-2 rounded-full"><FaTruck className="text-yellow-600" /></div>
                                                 <div>
-                                                    <p className="font-bold text-sm">Order #ORD-202{i}</p>
-                                                    <p className="text-xs text-gray-500">Arriving by 4:00 PM Today</p>
+                                                    <p className="font-bold text-sm">Order #{order._id.slice(-6).toUpperCase()}</p>
+                                                    <p className="text-xs text-gray-500">{order.cropName} ({order.quantity}kg)</p>
                                                 </div>
                                             </div>
-                                            <span className="text-xs font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded">In Transit</span>
+                                            <span className="text-xs font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded">{order.status}</span>
                                         </div>
-                                    ))}
+                                    )) : (
+                                        <p className="text-gray-400 text-sm text-center py-4">No pending deliveries</p>
+                                    )}
                                 </div>
                             </div>
                             <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-                                <h3 className="font-bold text-gray-800 mb-4">Stock History</h3>
-                                {/* Simple Graph Placeholder */}
-                                <div className="h-48 bg-gray-50 rounded-lg flex items-center justify-center border border-dashed border-gray-300 text-gray-400">
-                                    <FaChartLine className="mr-2" /> Visual Chart Component Would Go Here
+                                <h3 className="font-bold text-gray-800 mb-4">Market Overview</h3>
+                                <div className="h-48 bg-gray-50 rounded-lg flex items-center justify-center text-gray-400">
+                                    <div className="text-center">
+                                        <p className="text-3xl font-bold text-gray-300 mb-2">{allProducts.length}</p>
+                                        <p>Active Products Listings in Market</p>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -250,12 +275,11 @@ const WholesaleDashboard = () => {
                                     <h2 className="text-2xl font-bold text-gray-800">
                                         {marketView === 'categories' ? 'Browse Categories' :
                                             marketView === 'crop_list' ? `${selectedCategory} Crops` :
-                                                `Farmers Selling ${selectedCrop?.name}`}
+                                                `Farmers Selling in ${selectedCategory}`}
                                     </h2>
                                     <p className="text-sm text-gray-500">
                                         {marketView === 'categories' ? 'Select a category to start buying.' :
-                                            marketView === 'crop_list' ? 'Choose a specific crop to view sellers.' :
-                                                'Compare prices and ratings to make the best deal.'}
+                                            'Compare prices and ratings to make the best deal.'}
                                     </p>
                                 </div>
                             </div>
@@ -275,30 +299,7 @@ const WholesaleDashboard = () => {
                                         </div>
                                         <div className="p-4 text-center">
                                             <h3 className="text-lg font-bold text-gray-800">{cat.name}</h3>
-                                            <p className="text-sm text-gray-500">{cat.count} varieties available</p>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        )}
-
-                        {/* VIEW 2: Specific Crop List */}
-                        {marketView === 'crop_list' && (
-                            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-6">
-                                {(specificCrops[selectedCategory] || []).map((crop) => (
-                                    <div
-                                        key={crop.id}
-                                        onClick={() => handleCropSelect(crop)}
-                                        className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden cursor-pointer hover:shadow-lg hover:border-blue-200 transition-all group"
-                                    >
-                                        <div className="h-48 overflow-hidden relative">
-                                            <img src={crop.image} alt={crop.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
-                                            <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                                                <span className="bg-white text-gray-900 px-4 py-2 rounded-full font-bold text-sm">View Farmers</span>
-                                            </div>
-                                        </div>
-                                        <div className="p-4 text-center">
-                                            <h3 className="text-xl font-bold text-gray-800">{crop.name}</h3>
+                                            <p className="text-sm text-gray-500">{cat.count} listings</p>
                                         </div>
                                     </div>
                                 ))}
@@ -354,79 +355,53 @@ const WholesaleDashboard = () => {
                     </div>
                 )}
 
-                {/* --- TAB 3: INVENTORY --- */}
+                {/* --- TAB 3: INVENTORY (My Purchases) --- */}
                 {activeTab === 'inventory' && (
                     <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden animate-fade-in">
                         <div className="p-6 border-b border-gray-200 flex justify-between items-center">
-                            <h3 className="text-lg font-bold text-gray-800">Warehouse Inventory</h3>
-                            <button className="text-blue-600 font-medium hover:underline text-sm">+ Add Manual Stock</button>
+                            <h3 className="text-lg font-bold text-gray-800">My Purchases Inventory</h3>
                         </div>
-                        <table className="w-full text-left whitespace-nowrap">
-                            <thead className="bg-gray-50 text-gray-500 uppercase text-xs font-bold">
-                                <tr>
-                                    <th className="px-6 py-4">Product</th>
-                                    <th className="px-6 py-4">Batch ID</th>
-                                    <th className="px-6 py-4">Current Stock</th>
-                                    <th className="px-6 py-4">Expiry Date</th>
-                                    <th className="px-6 py-4">Status</th>
-                                    <th className="px-6 py-4 text-right">Action</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-gray-100 text-sm">
-                                {inventoryData.map((item) => (
-                                    <tr key={item.id} className="hover:bg-gray-50">
-                                        <td className="px-6 py-4 font-bold text-gray-900">{item.name}</td>
-                                        <td className="px-6 py-4 text-gray-500 font-mono text-xs">{item.batchId}</td>
-                                        <td className="px-6 py-4 font-bold">{item.stock} {item.unit}</td>
-                                        <td className="px-6 py-4">{item.expiry}</td>
-                                        <td className="px-6 py-4">
-                                            <span className={`px-2 py-1 rounded text-xs font-bold ${item.status === 'Low Stock' ? 'bg-red-100 text-red-700' :
-                                                item.status === 'Medium' ? 'bg-yellow-100 text-yellow-700' : 'bg-green-100 text-green-700'
-                                                }`}>
-                                                {item.status}
-                                            </span>
-                                        </td>
-                                        <td className="px-6 py-4 text-right">
-                                            <button className="text-blue-600 font-medium hover:underline">History</button>
-                                        </td>
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-left whitespace-nowrap">
+                                <thead className="bg-gray-50 text-gray-500 uppercase text-xs font-bold">
+                                    <tr>
+                                        <th className="px-6 py-4">Order ID</th>
+                                        <th className="px-6 py-4">Product</th>
+                                        <th className="px-6 py-4">Farmer</th>
+                                        <th className="px-6 py-4">Quantity</th>
+                                        <th className="px-6 py-4">Purchase Date</th>
+                                        <th className="px-6 py-4">Status</th>
                                     </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
-                )}
-
-                {/* --- TAB 4: CONTRACTS --- */}
-                {activeTab === 'contracts' && (
-                    <div className="animate-fade-in space-y-6">
-                        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
-                            <h3 className="text-lg font-bold text-gray-800 mb-4">Active Supplier Contracts</h3>
-                            <div className="space-y-4">
-                                <div className="border border-gray-200 rounded-xl p-4 flex justify-between items-center hover:bg-gray-50 transition">
-                                    <div className="flex items-center gap-4">
-                                        <div className="bg-purple-100 p-3 rounded-lg"><FaFileContract className="text-purple-600 text-xl" /></div>
-                                        <div>
-                                            <h4 className="font-bold text-gray-900">Ramesh Kisan (Annual Supply)</h4>
-                                            <p className="text-xs text-gray-500">Valid until: Dec 2024 • Payment Terms: Net 30</p>
-                                        </div>
-                                    </div>
-                                    <span className="bg-green-100 text-green-700 px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1">
-                                        <FaCheckCircle /> Active
-                                    </span>
-                                </div>
-                                <div className="border border-gray-200 rounded-xl p-4 flex justify-between items-center hover:bg-gray-50 transition">
-                                    <div className="flex items-center gap-4">
-                                        <div className="bg-gray-100 p-3 rounded-lg"><FaFileContract className="text-gray-600 text-xl" /></div>
-                                        <div>
-                                            <h4 className="font-bold text-gray-900">Suresh Patil (Seasonal)</h4>
-                                            <p className="text-xs text-gray-500">Valid until: Mar 2024 • Payment Terms: Advance</p>
-                                        </div>
-                                    </div>
-                                    <span className="bg-gray-100 text-gray-600 px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1">
-                                        <FaHistory /> Expiring Soon
-                                    </span>
-                                </div>
-                            </div>
+                                </thead>
+                                <tbody className="divide-y divide-gray-100 text-sm">
+                                    {orders.length > 0 ? (
+                                        orders.map((order) => (
+                                            <tr key={order._id} className="hover:bg-gray-50">
+                                                <td className="px-6 py-4 font-mono text-xs text-gray-500">#{order._id.slice(-6).toUpperCase()}</td>
+                                                <td className="px-6 py-4 font-bold text-gray-900">{order.cropName}</td>
+                                                <td className="px-6 py-4">{order.farmerName}</td>
+                                                <td className="px-6 py-4 font-bold">{order.quantity} {order.unit}</td>
+                                                <td className="px-6 py-4">{new Date(order.createdAt).toLocaleDateString()}</td>
+                                                <td className="px-6 py-4">
+                                                    <span className={`px-2 py-1 rounded text-xs font-bold ${order.status === 'Pending' ? 'bg-yellow-100 text-yellow-700' :
+                                                        order.status === 'Confirmed' ? 'bg-blue-100 text-blue-700' :
+                                                            order.status === 'Delivered' ? 'bg-green-100 text-green-700' :
+                                                                'bg-gray-100 text-gray-700'
+                                                        }`}>
+                                                        {order.status}
+                                                    </span>
+                                                </td>
+                                            </tr>
+                                        ))
+                                    ) : (
+                                        <tr>
+                                            <td colSpan="6" className="px-6 py-8 text-center text-gray-500">
+                                                No purchase history yet.
+                                            </td>
+                                        </tr>
+                                    )}
+                                </tbody>
+                            </table>
                         </div>
                     </div>
                 )}

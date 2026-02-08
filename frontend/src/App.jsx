@@ -18,8 +18,7 @@ import Crops from "./pages/Crops";
 import Schemes from "./pages/Schemes";
 import DiseaseDetector from "./pages/DiseaseDetector";
 import SmartPlanning from "./pages/SmartPlanner";
-import SellCrop from "./pages/SellCrop";
-import MyCropListings from "./pages/MyCropListings";
+
 
 
 const Main = () => {
@@ -70,8 +69,7 @@ const Main = () => {
         <Route path="/schemes" element={<ProtectedRoute><Schemes /></ProtectedRoute>} />
         <Route path="/diseasedetector" element={<ProtectedRoute><DiseaseDetector /></ProtectedRoute>} />
         <Route path="/smartplanning" element={<ProtectedRoute><SmartPlanning /></ProtectedRoute>} />
-        <Route path="/sell-crop" element={<ProtectedRoute allowedRoles={['farmer']}><SellCrop /></ProtectedRoute>} />
-        <Route path="/my-listings" element={<ProtectedRoute allowedRoles={['farmer']}><MyCropListings /></ProtectedRoute>} />
+
 
         <Route path="*" element={<Navigate to="/" />} />
       </Routes>
